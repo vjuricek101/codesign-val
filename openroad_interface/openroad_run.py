@@ -192,6 +192,68 @@ class OpenRoadRun:
 
         self.update_clock_period(self.directory + "/tcl/codesign_files/codesign.sdc")
 
+        # --- Circuit Training Integration ---
+        use_circuit_training = False
+        args_dict = self.cfg.get("args") if isinstance(self.cfg, dict) else None
+        if isinstance(args_dict, dict):
+            use_circuit_training = args_dict.get("use_circuit_training", False)
+            
+        if use_circuit_training:
+            logger.info("Circuit Training is enabled. Preparing to run macro placement inference.")
+            import openroad_interface.circuit_training_bridge as ct_bridge
+            design_name = "codesign"
+            out_pb_path = os.path.join(self.directory, "results", f"{design_name}.pb.txt")
+            def_file = os.path.join(self.directory, "results", "first_generated.def")
+            
+            # Gather LEF files
+            lef_files = [
+                os.path.join(self.directory, "tcl", "codesign_files", "codesign_tech.lef"),
+                os.path.join(self.directory, "tcl", "codesign_files", "codesign_stdcell.lef")
+            ]
+            if self.custom_lef_files_to_include:
+                lef_files.extend(self.custom_lef_files_to_include)
+                
+            try:
+                # Convert LEF/DEF to PB
+                logger.info(f"Converting LEF/DEF to PB format for {design_name}")
+                ct_bridge.convert_lef_def_to_pb(lef_files, def_file, design_name, out_pb_path)
+                
+                # Run inference
+                out_plc_path = os.path.join(self.directory, "results", f"{design_name}_placed.plc")
+                run_dir = args_dict.get("ct_run_dir", "run_00")
+                ckpt_id = args_dict.get("ct_ckpt_id", "policy_checkpoint_0000103984")
+                
+                # Create a blank initial plc file
+                init_plc_path = os.path.join(self.directory, "results", "initial.plc")
+                with open(init_plc_path, 'w') as f:
+                    pass
+                
+                ct_bridge.run_circuit_training_inference(out_pb_path, init_plc_path, out_plc_path, run_dir, ckpt_id)
+                
+                # Convert PB placement to OpenROAD TCL
+                out_tcl_file = os.path.join(self.directory, "tcl", "circuit_training_macro_place.tcl")
+                logger.info(f"Converting PLC back into OpenROAD TCL placement at {out_tcl_file}")
+                # We need the origin to be the core area origin, which is DIE_CORE_BUFFER_SIZE
+                ct_bridge.convert_pb_placement_to_tcl(out_plc_path, out_pb_path, out_tcl_file, origin_x=DIE_CORE_BUFFER_SIZE, origin_y=DIE_CORE_BUFFER_SIZE)
+                
+                # Edit codesign_flow.tcl to source our placement rather than OpenROAD's default analytical placer
+                with open(os.path.join(self.directory, "tcl", "codesign_flow.tcl"), "r") as f:
+                    flow_tcl = f.read()
+                
+                # Comment out the OpenROAD rtl_macro_placer call entirely
+                import re
+                flow_tcl = re.sub(r'(rtl_macro_placer.*?write_macro_placement macro_place.tcl)', r'# \1', flow_tcl, flags=re.DOTALL)
+                
+                # Source our generated macro placement instead
+                flow_tcl = flow_tcl.replace("#source macro_place.tcl", "source circuit_training_macro_place.tcl")
+                
+                with open(os.path.join(self.directory, "tcl", "codesign_flow.tcl"), "w") as f:
+                    f.write(flow_tcl)
+                    
+            except Exception as e:
+                logger.error(f"Circuit training macro placement failed: {e}. Falling back to standard OpenROAD analytical placer.")
+        # --- End Circuit Training Integration ---
+
         self.update_top_level_flag()
 
         final_area = area_estimate

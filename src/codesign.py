@@ -603,6 +603,7 @@ class Codesign:
 
             #self.hw.loop_2x_graphs = {basic_block_name: schedule_parser.basic_blocks[basic_block_name]["G_loop_2x_standard"] for basic_block_name in schedule_parser.basic_blocks if "G_loop_2x" in schedule_parser.basic_blocks[basic_block_name]}
             self.hw.mem_access_db = schedule_parser.mem_access_db.json_obj
+            self.hw.ram_recurrences = {bb: {} for bb in schedule_parser.basic_blocks}
             logger.info("Vitis schedule parsing complete")
             logger.info(f"time to parse vitis schedule: {time.time()-start_time}")
         else:
@@ -625,6 +626,7 @@ class Codesign:
                                 False: nx.read_gml(f"{parse_results_dir}/{file}/{subfile.replace('rsc_delay_only_', '')}")
                             }
             self.hw.mem_access_db = json.load(open(f"{parse_results_dir}/mem_access_db.json"))
+            self.hw.ram_recurrences = {file: {} for file in self.hw.scheduled_dfgs}
             logger.info("Skipping Vitis schedule parsing")
         
         logger.info(f"scheduled dfgs: {self.hw.scheduled_dfgs}")
@@ -682,7 +684,7 @@ class Codesign:
             self.max_dsp = dsp_usage + 2 # allow some margin above initial dsp usage
             self.max_latency = latency
         elif iteration_count == 0:
-            self.max_speedup_factor = float(latency / self.max_latency)
+            self.max_speedup_factor = float(latency / self.max_latency) if self.max_latency != 0 else 1000000 # basically inf
             if dsp_usage <= 0:
                 raise ValueError(
                     f"Invalid DSP usage ({dsp_usage}) for {self.benchmark_name}. "
@@ -948,10 +950,7 @@ class Codesign:
 
     def inverse_pass(self):
         """
-        Executes the inverse pass of the codesign process: generates symbolic CACTI values for
-        memories, computes obj, runs optimizer to find better technology
-        parameters, and logs results.
-
+        Executes the inverse pass of the codesign process: optimize technology given some netlist and schedule
         Args:
             None
         Returns:
@@ -962,7 +961,7 @@ class Codesign:
 
         stdout = sys.stdout
         with open(f"{self.tmp_dir}/ipopt_out.txt", "w") as sys.stdout:
-            lag_factor, error = self.opt.optimize(self.cfg["args"]["solver"], iteration=self.iteration_count, improvement=self.inverse_pass_improvement)
+            lag_factor, error = self.opt.optimize(self.cfg["args"]["solver"], iteration=self.iteration_count, improvement=self.inverse_pass_improvement, fu_grouping=self.cfg["args"].get("fu_grouping", "none"), mem_grouping=self.cfg["args"].get("mem_grouping", "none"), sampler=self.cfg["args"].get("sampler", "none"))
             self.inverse_pass_lag_factor *= lag_factor
         sys.stdout = stdout
 
@@ -1214,6 +1213,9 @@ if __name__ == "__main__":
     parser.add_argument("--fixed_area_increase_pattern", type=bool, help="number of resources increases by some factor for each iteration")
     parser.add_argument("--leakage_restriction", type=bool, help="restrict the passive power to be less than 1/3 of the total power")
     parser.add_argument("--MUL_restriction", type=bool, help="restrict the MUL flag to be 1")
+    parser.add_argument("--use_circuit_training", action="store_true", help="enable circuit training macro placement")
+    parser.add_argument("--ct_run_dir", type=str, default="run_00", help="circuit training run directory")
+    parser.add_argument("--ct_ckpt_id", type=str, help="circuit training policy checkpoint id")
     args = parser.parse_args()
 
     main(args)

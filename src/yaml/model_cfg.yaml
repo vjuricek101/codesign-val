@@ -125,7 +125,7 @@ bsim4_cfg_all_toxe_no_narrow:
   base_cfg: bsim4_cfg_all_toxe
 
 vs_cfg:
-  model_type: vs
+  model_type: mvs_1_spice
   effects:
     area_and_latency_scaling: True
     high_k_gate: True
@@ -182,7 +182,7 @@ mvs_2_cfg_test:
 
 vscnfet_cfg_test:
   base_cfg: vs_cfg_latest_test
-  vs_model_type: vscnfet
+  vs_model_type: mvs_1_spicecnfet
 
 vs_cfg_latest:
   base_cfg: vs_cfg

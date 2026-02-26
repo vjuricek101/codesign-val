@@ -31,7 +31,7 @@ default:
     min_dsp: 13
     max_power_density: 100000000 # W/mm^2, not active right now
     max_power: 150 # W
-    solver: ipopt
+    solver: basic
     fixed_area_increase_pattern: False
     historical_trend_pipeline: False
     leakage_restriction: False

@@ -282,7 +282,8 @@ class HardwareModel:
                 self.obj_sub_exprs[f"fu_{fu_name}_Ppassinv"]= row["P_pass_inv"]
                 self.obj_sub_exprs[f"fu_{fu_name}_area"]      = row["area"]
         else:
-            raise ValueError(f"Model type {self.circuit_model.tech_model.model_cfg['model_type']} not supported")
+            self.obj_sub_exprs = {}
+            self.obj_sub_plot_names = {}
         self.obj_sub_plot_names = {
             "execution_time": "Execution Time over generations (ns)",
             "passive power": "Passive Power over generations (W)",

@@ -3,6 +3,14 @@ from src import sim_util
 
 
 def precompute_pareto_values(tech_model) -> dict:
+    if not hasattr(tech_model, "pareto_df"):
+        tv = tech_model.base_params.tech_values
+        return {
+            "delay": np.array([float(sim_util.xreplace_safe(tech_model.delay, tv))]),
+            "E_act_inv": np.array([float(sim_util.xreplace_safe(tech_model.E_act_inv, tv))]),
+            "P_pass_inv": np.array([float(sim_util.xreplace_safe(tech_model.P_pass_inv, tv))]),
+            "area": np.array([float(sim_util.xreplace_safe(tech_model.base_params.area, tv))])
+        }
     """Precompute {delay, E_act_inv, P_pass_inv, area} for every row in tech_model.pareto_df.
 
     Temporarily iterates through all pareto rows, applying each design point to the

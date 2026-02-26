@@ -157,6 +157,7 @@ class MVS1SpiceModel(TechModel):
         self.R_wire = 0
         self.C_load = 0
         self.C_par = 0
+        self.C_diff = 0
         self.R_avg_inv = 0
         self.delta = 0
         self.dVt = 0
@@ -343,6 +344,9 @@ class MVS1SpiceModel(TechModel):
         self.ring_oscillator_delay = 0
 
         self.delay = (self.R_avg_inv * (self.C_par + self.C_wire/2) + (self.R_avg_inv + self.R_wire) * (self.C_wire/2 + self.C_load)) * 1e9  # ns
+
+        # Expose diffusion capacitance for hardware wire delay models
+        self.C_diff = self.C_par 
 
         self.apply_additional_effects()
 

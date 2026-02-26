@@ -285,9 +285,6 @@ def create_physical_design_netlist(parse_results_dir, top_module_name, allowed_f
         mem_mapping = json.load(f)
 
     flattened = mem_mapping.get("flattened", {})
-    if not flattened:
-        logger.warning("No flattened memory info found in memory_mapping.json")
-        return
 
     # Build mapping: flattened memory name -> set of all related port names
     # (child port names may differ from parent, e.g. v785 -> parent_fifo v78)

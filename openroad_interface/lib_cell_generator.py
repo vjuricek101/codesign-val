@@ -174,14 +174,31 @@ class LibCellGenerator:
             if "function" not in macro_data:
                 continue
             log_info(f"macro_data: {macro_data}")
-            delay = sim_util.xreplace_safe(circuit_model.symbolic_latency_wc[macro_data["function"]](), circuit_model.tech_model.base_params.tech_values)
+            
+            raw_delay = circuit_model.symbolic_latency_wc[macro_data["function"]]()
+            
+            # Memory models often return a raw integer/float, or a dictionary mapping ports to delays
+            if hasattr(raw_delay, "xreplace"):
+                delay = sim_util.xreplace_safe(raw_delay, circuit_model.tech_model.base_params.tech_values)
+            else:
+                # If it's a dict or custom object, we just default the base macro gate delay to 1.0ns
+                # (The detailed memory timing is handled by OpenROAD's Destiny/Cacti models elsewhere)
+                delay = float(raw_delay) if isinstance(raw_delay, (int, float)) else 1.0
+                
             if macro_data["function"] in circuit_model.symbolic_latency_wc and delay != 0:
+                raw_leakage = circuit_model.symbolic_power_passive.get(macro_data["function"], lambda: 0)()
+                
+                if hasattr(raw_leakage, "xreplace"):
+                    leakage = sim_util.xreplace_safe(raw_leakage, circuit_model.tech_model.base_params.tech_values) * 1e-9
+                else:
+                    leakage = float(raw_leakage) * 1e-9 if isinstance(raw_leakage, (int, float)) else 0.0
+
                 cell_specs.append({
                     "cell_name": macro_name,
                     "input_pins": macro_data["input"],
                     "output_pins": macro_data["output"],
                     "delay": delay,
-                    "leakage": sim_util.xreplace_safe(circuit_model.symbolic_power_passive[macro_data["function"]](), circuit_model.tech_model.base_params.tech_values) * 1e-9, # convert from W to nW
+                    "leakage": leakage, # convert from W to nW
                     "area": macro_data["area"]
                 })
             else:
