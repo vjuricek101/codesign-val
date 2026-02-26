@@ -1,7 +1,6 @@
 import sys
 import os
-
-# Add the TILOS FormatTranslators directory to the python path so we can import it
+# TILOS FormatTranslators directory 
 CT_TOOLS_DIR = os.path.join(
     os.path.dirname(__file__),
     "circuit_training", 
@@ -19,14 +18,8 @@ def convert_lef_def_to_pb(lef_files: list, def_file: str, design_name: str, out_
     """
     Parses LEF and DEF files and converts them into the Circuit Training
     Protocol Buffer (Tensorflow GraphDef) format.
-    
-    Args:
-        lef_files: A list of paths to LEF files (tech, macro, etc.)
-        def_file: Path to the DEF file.
-        design_name: Name of the top-level design.
-        out_pb_path: Path where the resulting .pb.txt should be written.
     """
-    # TILOS LefDef2ProBufFormat expects to find openroad in the path or a specific location
+    
     openroad_exe = os.environ.get("OPENROAD_EXE", os.path.join(os.path.dirname(__file__), "OpenROAD/build/src/openroad"))
     net_size_threshold = 300 # Default threshold from TILOS test scripts
     
@@ -48,13 +41,6 @@ def run_circuit_training_inference(netlist_pb_path: str, init_plc_path: str, out
     """
     Executes the Circuit Training RL agent to place macros.
     Expects a pre-trained policy to exist at: ./saved_policy/<run_dir>/<seed>/policy_saved_model/checkpoints/<ckpt_id>
-    
-    Args:
-        netlist_pb_path: Path to the unplaced .pb.txt netlist.
-        init_plc_path: Path to an initial .plc file (required by eval_ct.py, can be empty or heuristically generated).
-        out_plc_path: Path where the resulting .plc file should be written.
-        run_dir: Directory containing the saved policy.
-        ckpt_id: Checkpoint ID for the saved policy.
     """
     import subprocess
     
@@ -76,7 +62,7 @@ def run_circuit_training_inference(netlist_pb_path: str, init_plc_path: str, out
         "--ckptID", ckpt_id
     ]
     
-    # We need to run from the EvalCT directory due to how the module is structured in Circuit Training
+    # run from the EvalCT directory
     cwd = os.path.dirname(eval_script)
     print(f"Running Circuit Training inference: {' '.join(cmd)}")
     
@@ -87,11 +73,7 @@ def run_circuit_training_inference(netlist_pb_path: str, init_plc_path: str, out
         
     print("Circuit Training inference completed.")
     
-    # eval_ct.py normally hardcodes output to eval_<rundir>_to_<testcase>.plc
-    # We might need to copy/rename it to out_plc_path.
-    # We assume we can find it in the EvalCT dir:
-    # Example: eval_run_00_to_ariane.plc. We'll find the newest .plc file or specify it natively.
-    # For robust implementation, we will search for the expected file or copy the newest .plc file matching pattern
+    # search for the expected file or copy the newest .plc file matching pattern
     import glob
     plc_files = glob.glob(os.path.join(cwd, f"eval_{run_dir}_to_*.plc"))
     if plc_files:

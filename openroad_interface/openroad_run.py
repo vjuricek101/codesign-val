@@ -870,4 +870,3 @@ class OpenRoadRun:
             graph, f"{directory}/results/{est_or_det}.gml"
         )
         logger.info(f"Graph exported to {directory}/results/{est_or_det}.gml")
-
