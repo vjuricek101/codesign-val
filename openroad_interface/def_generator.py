@@ -582,7 +582,11 @@ class DefGenerator:
         # generating pins because system will freak out without this
         pin_text = []
         pin_text.append("PINS 1 ;")
-        pin_text.append("- clk + NET clk + DIRECTION INPUT + USE SIGNAL ;")
+        #pin_text.append("- clk + NET clk + DIRECTION INPUT + USE SIGNAL ;")
+        pin_text.append("- clk + NET clk + DIRECTION INPUT + USE SIGNAL")
+        pin_text.append("  + PORT")
+        pin_text.append("    + LAYER metal1 ( 0 0 ) ( 140 140 )")
+        pin_text.append("    + PLACED ( 0 0 ) N ;") # ADDING FOR CIRCUIT TRAINING
         pin_text.append("END  PINS")
 
 
