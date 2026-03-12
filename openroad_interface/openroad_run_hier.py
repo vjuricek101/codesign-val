@@ -1,4 +1,4 @@
-from enum import verify
+#from enum import verify
 import logging
 import re
 import os

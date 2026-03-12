@@ -10,10 +10,22 @@ proc read_libraries {} {
   read_lef $tech_lef
   read_lef $std_cell_lef
   foreach file $extra_lef { read_lef $file }
-  set corners [sta::corners]
+  set corners {}
+  if { [info commands get_corners] ne "" } {
+    set corners [get_corners]
+  } elseif { [info commands sta::corners] ne "" } {
+    set corners [sta::corners]
+  } elseif { [info commands sta::get_scenes] ne "" } {
+    set corners [sta::get_scenes]
+  } elseif { [info commands sta::scenes] ne "" } {
+    set corners [sta::scenes]
+  }
+
   if { [llength $corners] > 1 } {
     foreach corner $corners {
-      set corner_name [$corner name]
+      if { [catch {set corner_name [$corner name]} ] } {
+        set corner_name [$corner getName]
+      }
       set corner_index [lsearch $liberty_files $corner_name]
       if { $corner_index == -1 } {
         error "No liberty file in \$liberty_files for corner $corner_name."

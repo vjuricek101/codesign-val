@@ -8,7 +8,7 @@
 set_thread_count [expr [cpu_count] - 1]
 ################################################################
 # IO Placement (random)
-place_pins -random -hor_layers $io_placer_hor_layer -ver_layers $io_placer_ver_layer
+# place_pins -random -hor_layers $io_placer_hor_layer -ver_layers $io_placer_ver_layer
 
 ################################################################
 # Macro Placement
@@ -18,22 +18,31 @@ place_pins -random -hor_layers $io_placer_hor_layer -ver_layers $io_placer_ver_l
 
 ################################################################
 # Macro Placement (using rtl_macro_placer)
+#rtl_macro_placer \
+#    -target_util 0.25 \
+#    -target_dead_space 0.05 \
+#    -min_ar 0.33 \
+#    -area_weight 0.1 \
+#    -outline_weight 100.0 \
+#    -wirelength_weight 100.0 \
+#    -guidance_weight 10.0 \
+#    -fence_weight 10.0 \
+#    -boundary_weight 50.0 \
+#    -notch_weight 10.0 \
+#    -macro_blockage_weight 10.0 \
+#    -halo_width 10 \
+#    -halo_height 10 \
+#    -report_directory reports \
+#    -write_macro_placement macro_place.tcl
+
 rtl_macro_placer \
-    -target_util 0.25 \
-    -target_dead_space 0.05 \
-    -min_ar 0.33 \
     -area_weight 0.1 \
     -outline_weight 100.0 \
     -wirelength_weight 100.0 \
     -guidance_weight 10.0 \
     -fence_weight 10.0 \
-    -boundary_weight 50.0 \
-    -notch_weight 10.0 \
-    -macro_blockage_weight 10.0 \
     -halo_width 10 \
-    -halo_height 10 \
-    -report_directory reports \
-    -write_macro_placement macro_place.tcl
+    -halo_height 10
 
 # Lock macro positions by sourcing the generated macro placement file
 #source macro_place.tcl
@@ -156,7 +165,7 @@ detailed_placement -max_displacement 500
 
 # Capture utilization before fillers make it 100%
 utl::metric "DPL::utilization" [format %.1f [expr [rsz::utilization] * 100]]
-utl::metric "DPL::design_area" [sta::format_area [rsz::design_area] 0]
+utl::metric "DPL::design_area" [format "%.0f" [rsz::design_area]]
 
 # checkpoint
 set dpl_db [make_result_file ${design}_${platform}_dpl.db]

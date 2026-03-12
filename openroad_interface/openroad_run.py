@@ -1,4 +1,4 @@
-from enum import verify
+#from enum import verify
 import logging
 import re
 import os
@@ -216,17 +216,60 @@ class OpenRoadRun:
             try:
                 # Convert LEF/DEF to PB
                 logger.info(f"Converting LEF/DEF to PB format for {design_name}")
-                ct_bridge.convert_lef_def_to_pb(lef_files, def_file, design_name, out_pb_path)
+                preinstalled = args_dict.get("preinstalled_openroad_path")
+                openroad_bin = preinstalled if preinstalled else os.path.join(self.codesign_root_dir, "openroad_src", "build", "bin", "openroad")
+                lib_file = os.path.join(self.directory, "tcl", "codesign_files", "codesign_typ.lib")
+                ct_bridge.convert_lef_def_to_pb(lef_files, def_file, design_name, out_pb_path, openroad_bin=openroad_bin, lib_file=lib_file)
                 
                 # Run inference
                 out_plc_path = os.path.join(self.directory, "results", f"{design_name}_placed.plc")
                 run_dir = args_dict.get("ct_run_dir", "run_00")
                 ckpt_id = args_dict.get("ct_ckpt_id", "policy_checkpoint_0000103984")
                 
-                # Create a blank initial plc file
                 init_plc_path = os.path.join(self.directory, "results", "initial.plc")
-                with open(init_plc_path, 'w') as f:
-                    pass
+                import sys, re
+                pb_helper_path = os.path.join(self.codesign_root_dir, "openroad_interface", "circuit_training", "tools", "TILOS_MacroPlacement", "Flows", "util")
+                if pb_helper_path not in sys.path:
+                    sys.path.append(pb_helper_path)
+                from pb_helper import pb_design
+                
+                logger.info(f"Generating valid initial.plc for {design_name}")
+                design = pb_design(design_name, out_pb_path)
+                design.read_netlist()
+                
+                # Extract core area from def file to properly populate initial.plc metadata
+                core_w, core_h = 1000.0, 1000.0 # defaults if parse fails
+                try:
+                    with open(def_file, 'r') as f:
+                        def_content = f.read()
+                    
+                    units_match = re.search(r'UNITS\s+DISTANCE\s+MICRONS\s+(\d+)', def_content)
+                    dbu = float(units_match.group(1)) if units_match else 2000.0
+                    
+                    # Extract DIEAREA
+                    die_match = re.search(r'DIEAREA\s*\(\s*(\d+)\s+(\d+)\s*\)\s*\(\s*(\d+)\s+(\d+)\s*\)', def_content)
+                    if die_match:
+                        x1, y1, x2, y2 = map(float, die_match.groups())
+                        die_w = (x2 - x1) / dbu
+                        die_h = (y2 - y1) / dbu
+                        # Core area is defined by shrinking die by DIE_CORE_BUFFER_SIZE on all 4 sides
+                        core_w = die_w - (2 * DIE_CORE_BUFFER_SIZE)
+                        core_h = die_h - (2 * DIE_CORE_BUFFER_SIZE)
+                        logger.info(f"Parsed DEF DIEAREA: {die_w}x{die_h} -> COREAREA: {core_w}x{core_h}")
+                except Exception as e:
+                    logger.warning(f"Failed to parse DEF for initial.plc area: {e}")
+
+                design.plc_info.columns = 10
+                design.plc_info.rows = 10
+                design.plc_info.width = core_w
+                design.plc_info.height = core_h
+                design.plc_info.area = core_w * core_h
+                design.plc_info.route_hor = 70.33
+                design.plc_info.route_ver = 74.51
+                design.plc_info.sm_factor = 5
+                design.plc_info.ovrlp_thrshld = 0.004
+                
+                design.write_plc(init_plc_path)
                 
                 ct_bridge.run_circuit_training_inference(out_pb_path, init_plc_path, out_plc_path, run_dir, ckpt_id)
                 
@@ -456,7 +499,7 @@ class OpenRoadRun:
         if preinstalled:
             openroad_cmd = preinstalled
         else:
-            openroad_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "OpenROAD", "build", "src", "openroad")
+            openroad_bin = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "openroad_src", "build", "bin", "openroad")
             openroad_cmd = openroad_bin
         
         # Set up environment for Qt/OpenGL software rendering
@@ -471,6 +514,17 @@ class OpenRoadRun:
         env['GALLIUM_DRIVER'] = 'llvmpipe'
         env['MESA_LOADER_DRIVER_OVERRIDE'] = 'llvmpipe'
         env['MESA_GL_VERSION_OVERRIDE'] = '3.3'
+        
+        # Add .local/lib64 and .local/lib to LD_LIBRARY_PATH for dependencies
+        local_lib64 = os.path.join(self.codesign_root_dir, ".local", "lib64")
+        local_lib = os.path.join(self.codesign_root_dir, ".local", "lib")
+        
+        current_ld_path = env.get("LD_LIBRARY_PATH", "")
+        paths = [local_lib64, local_lib]
+        if current_ld_path:
+            paths.append(current_ld_path)
+        env["LD_LIBRARY_PATH"] = ":".join(paths)
+        logger.info(f"Set LD_LIBRARY_PATH to {env['LD_LIBRARY_PATH']}")
         
         # Ensure Qt can find image format plugins (PNG support)
         # Try common system locations for Qt5 plugins

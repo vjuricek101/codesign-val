@@ -14,20 +14,20 @@ sys.path.append(CT_TOOLS_DIR)
 
 from FormatTranslators import LefDef2ProBufFormat
 
-def convert_lef_def_to_pb(lef_files: list, def_file: str, design_name: str, out_pb_path: str):
+def convert_lef_def_to_pb(lef_files: list, def_file: str, design_name: str, out_pb_path: str, openroad_bin="openroad", lib_file=None):
     """
     Parses LEF and DEF files and converts them into the Circuit Training
     Protocol Buffer (Tensorflow GraphDef) format.
     """
     
-    openroad_exe = os.environ.get("OPENROAD_EXE", os.path.join(os.path.dirname(__file__), "OpenROAD/build/src/openroad"))
+    openroad_exe = os.environ.get("OPENROAD_EXE", openroad_bin)
     net_size_threshold = 300 # Default threshold from TILOS test scripts
     
     # The TILOS script automatically writes to "[design_name].pb.txt" in the current directory.
     # We will let it run, and then move/rename the output file to out_pb_path.
     
     print(f"Running TILOS LefDef2ProBufFormat for {design_name}...")
-    LefDef2ProBufFormat(lef_files, def_file, design_name, openroad_exe, net_size_threshold)
+    LefDef2ProBufFormat(lef_files, def_file, design_name, openroad_exe, net_size_threshold, lib_file=lib_file)
     
     # The TILOS script writes to `[design_name].pb.txt`
     tilos_out_file = f"{design_name}.pb.txt"
@@ -54,8 +54,10 @@ def run_circuit_training_inference(netlist_pb_path: str, init_plc_path: str, out
         "eval_ct.py"
     )
     
+    MINICONDA_PYTHON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "miniconda3", "bin", "python3.13")
+
     cmd = [
-        "python3", "-m", "eval_ct",
+        MINICONDA_PYTHON, "-m", "eval_ct",
         "--netlist", netlist_pb_path,
         "--plc", init_plc_path,
         "--rundir", run_dir,
@@ -66,7 +68,13 @@ def run_circuit_training_inference(netlist_pb_path: str, init_plc_path: str, out
     cwd = os.path.dirname(eval_script)
     print(f"Running Circuit Training inference: {' '.join(cmd)}")
     
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    # this may be scuffed
+    openroad_interface_dir = os.path.dirname(os.path.abspath(__file__))
+    ct_root_dir = os.path.join(openroad_interface_dir, "circuit_training")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = ct_root_dir
+    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env)
+
     if result.returncode != 0:
         print(f"Error running Circuit Training:\n{result.stderr}")
         raise RuntimeError("Circuit Training inference failed.")
