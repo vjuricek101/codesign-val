@@ -83,7 +83,8 @@ def run_circuit_training_inference(netlist_pb_path: str, init_plc_path: str, out
     
     # search for the expected file or copy the newest .plc file matching pattern
     import glob
-    plc_files = glob.glob(os.path.join(cwd, f"eval_{run_dir}_to_*.plc"))
+    # In eval_ct.py, EVAL_TESTCASE might be the dir name (e.g. "pd")
+    plc_files = glob.glob(os.path.join(cwd, "eval_*.plc"))
     if plc_files:
         latest_plc = max(plc_files, key=os.path.getctime)
         os.rename(latest_plc, out_plc_path)

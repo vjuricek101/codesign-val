@@ -243,11 +243,11 @@ class OpenRoadRun:
                     with open(def_file, 'r') as f:
                         def_content = f.read()
                     
-                    units_match = re.search(r'UNITS\s+DISTANCE\s+MICRONS\s+(\d+)', def_content)
+                    units_match = re.search(r'UNITS\s+DISTANCE\s+MICRONS\s+([\d.]+)', def_content)
                     dbu = float(units_match.group(1)) if units_match else 2000.0
                     
-                    # Extract DIEAREA
-                    die_match = re.search(r'DIEAREA\s*\(\s*(\d+)\s+(\d+)\s*\)\s*\(\s*(\d+)\s+(\d+)\s*\)', def_content)
+                    # Extract DIEAREA - handle floats/integers
+                    die_match = re.search(r'DIEAREA\s*\(\s*([\d.]+)\s+([\d.]+)\s*\)\s*\(\s*([\d.]+)\s+([\d.]+)\s*\)', def_content)
                     if die_match:
                         x1, y1, x2, y2 = map(float, die_match.groups())
                         die_w = (x2 - x1) / dbu
@@ -283,9 +283,19 @@ class OpenRoadRun:
                 with open(os.path.join(self.directory, "tcl", "codesign_flow.tcl"), "r") as f:
                     flow_tcl = f.read()
                 
-                # Comment out the OpenROAD rtl_macro_placer call entirely
+                # Comment out any rtl_macro_placer call entirely
                 import re
-                flow_tcl = re.sub(r'(rtl_macro_placer.*?write_macro_placement macro_place.tcl)', r'# \1', flow_tcl, flags=re.DOTALL)
+                flow_tcl = re.sub(r'(\n\s*rtl_macro_placer\b.*?)(?=\n\n|\n\s*[a-z_]|$)', 
+                                  lambda m: m.group(1).replace('\n', '\n# '), 
+                                  flow_tcl, flags=re.DOTALL)
+                
+                # Define helper proc for the generated placement if not already present
+                if "proc placeInstance" not in flow_tcl:
+                    place_inst_helper = "\nproc placeInstance {inst x y orient status} {\n" \
+                                       "    # Use place_macro for this version of OpenROAD\n" \
+                                       "    place_macro -macro_name $inst -location [list $x $y] -orientation $orient\n" \
+                                       "}\n\n"
+                    flow_tcl = place_inst_helper + flow_tcl
                 
                 # Source our generated macro placement instead
                 flow_tcl = flow_tcl.replace("#source macro_place.tcl", "source circuit_training_macro_place.tcl")
