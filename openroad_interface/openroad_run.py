@@ -284,7 +284,6 @@ class OpenRoadRun:
                     flow_tcl = f.read()
                 
                 # Comment out any rtl_macro_placer call entirely
-                import re
                 flow_tcl = re.sub(r'(\n\s*rtl_macro_placer\b.*?)(?=\n\n|\n\s*[a-z_]|$)', 
                                   lambda m: m.group(1).replace('\n', '\n# '), 
                                   flow_tcl, flags=re.DOTALL)

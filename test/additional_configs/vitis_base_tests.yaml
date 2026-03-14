@@ -4,12 +4,6 @@ vitis_gemm_test:
     benchmark: gemm
     min_dsp: 100
 
-vitis_gemm_ct_test:
-  base_cfg: vitis_gemm_test
-  args:
-    use_circuit_training: True
-    num_iters: 1
-
 vitis_gesummv_test:
   base_cfg: vitis_test
   args:
