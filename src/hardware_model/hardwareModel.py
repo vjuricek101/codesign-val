@@ -165,18 +165,19 @@ class HardwareModel:
         n = len(precomputed["delay"])
         index = max(0, min(index, n - 1))
         logic_fns = set(self.circuit_model.coeffs["gamma"].keys())
-        self.logic_unit_models = {}
+        # self.logic_unit_models = {}
         for fn in logic_fns:
-            lum = lum_module.LogicUnitModel(precomputed, f"{fn}_default", fn)
+            rsc_name = f"{fn}_default"
+            lum = lum_module.LogicUnitModel(precomputed, rsc_name, fn)
             lum.set_design_point(index)
-            self.logic_unit_models[f"{fn}_default"] = lum
+            self.logic_unit_models[rsc_name] = lum
         self.circuit_model.set_logic_unit_models(self.logic_unit_models)
 
     def set_logic_unit_models(self):
         """Create one LogicUnitModel per unique logic FU resource in the netlist."""
         precomputed = lum_module.precompute_pareto_values(self.circuit_model.tech_model)
         logic_fns = set(self.circuit_model.coeffs["gamma"].keys())
-        self.logic_unit_models = {}
+        # self.logic_unit_models = {}
         for node, data in self.netlist.nodes(data=True):
             fn = data.get("function", "N/A")
             rsc = data.get("name", None)

@@ -252,6 +252,14 @@ class ObjectiveEvaluator:
         self.total_active_energy, and self.total_passive_energy.
         """
         self.execution_time = self.calculate_execution_time()
+        
+        # Guard against zero execution time to prevent division by zero
+        # This can happen if the DFG is empty or the model setup is incomplete
+        if self.execution_time <= 0:
+            logger.warning(f"Execution time is {self.execution_time} for top block {self.top_block_name}. Check DFG connectivity.")
+            # Set to a very small number to avoid crash, but keep it visibly wrong for the optimizer
+            self.execution_time = 1e-12 
+
         self.total_passive_energy = self.calculate_passive_energy(self.execution_time)
         self.total_active_energy = self.calculate_active_energy()
         self.total_refresh_energy = self.calculate_refresh_energy()
@@ -549,6 +557,8 @@ class ObjectiveEvaluator:
         if rsc not in self.logic_unit_models:
             if fn == "Register16" and node_data.get("mem_name") in self.logic_unit_models: # registers sometimes treated differently in netlist
                 rsc = node_data.get("mem_name")
+            elif f"{fn}_default" in self.logic_unit_models:
+                rsc = f"{fn}_default"
             else:
                 raise ValueError(f"no per-FU model for fn={fn}, rsc={rsc}, node_data: {node_data}")
         lum = self.logic_unit_models[rsc]
