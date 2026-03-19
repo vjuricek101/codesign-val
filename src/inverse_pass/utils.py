@@ -49,6 +49,7 @@ class DesignPointResult:
     V_th: float
     tox: float
     satisfies_constraints: bool
+    constraint_violations: Dict[str, float] = field(default_factory=dict)
     # Block-level scalar metrics (from ObjectiveEvaluator)
     execution_time: float = 0.0       # block execution time (ns)
     total_active_energy: float = 0.0  # block active energy (nJ)
@@ -71,6 +72,8 @@ class DesignPointResult:
     passive_power_breakdown_pct: Dict[str, float] = field(default_factory=lambda: {"logic": 0.0, "memory": 0.0})
     passive_power_memory_by_block: Dict[str, float] = field(default_factory=dict)
     passive_power_memory_by_block_pct: Dict[str, float] = field(default_factory=dict)
+    # Loop II breakdown: loop_name -> {II, resource_II, recurrence_II, delay_1x_ns, bottleneck, critical_recurrence_node, critical_recurrence_ns}
+    loop_ii_info: Dict[str, Any] = field(default_factory=dict)
 
 def plot_2d_scatter(
     top_results: List[DesignPointResult],

@@ -41,11 +41,6 @@ class BaseParameters:
         self.eot = self.symbol_init("eot")
         self.W = self.symbol_init("W")
         self.L = self.symbol_init("L")
-        self.Ieff = self.symbol_init("Ieff")
-        self.Ieff_n = self.symbol_init("Ieff_n")
-        self.Ieff_p = self.symbol_init("Ieff_p")
-        self.I_sub = self.symbol_init("I_sub")
-        self.V_th_eff = self.symbol_init("V_th_eff")
         self.k_gate = self.symbol_init("k_gate")
         self.t_1 = self.symbol_init("t_1") # physical body thickness, used for scale length in vs model
 
@@ -133,13 +128,6 @@ class BaseParameters:
         # set initial values for dennard scaling factors (no actual meaning, they will be set by the optimizer)
         self.set_symbol_value(self.alpha_dennard, 1)
         self.set_symbol_value(self.epsilon_dennard, 1)
-
-        # initialize derived parameters with default values to avoid xreplace errors
-        self.set_symbol_value(self.Ieff, 0.0)
-        self.set_symbol_value(self.Ieff_n, 0.0)
-        self.set_symbol_value(self.Ieff_p, 0.0)
-        self.set_symbol_value(self.I_sub, 0.0)
-        self.set_symbol_value(self.V_th_eff, 0.0)
 
         # mock area and latency scaling for experimental purposes
         self.area_scale = sim_util.xreplace_safe(self.W * self.L, self.tech_values) / (self.W * self.L)
@@ -230,11 +218,6 @@ class BaseParameters:
             "Lscale": self.Lscale,
             "W": self.W,
             "L": self.L,
-            "Ieff": self.Ieff,
-            "Ieff_n": self.Ieff_n,
-            "Ieff_p": self.Ieff_p,
-            "I_sub": self.I_sub,
-            "V_th_eff": self.V_th_eff,
             "k_gate": self.k_gate,
             "Cs": self.Cs,
             "d": self.d,

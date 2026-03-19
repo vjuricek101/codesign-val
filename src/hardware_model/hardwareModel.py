@@ -76,6 +76,7 @@ class HardwareModel:
         self.scheduled_dfgs = {}
         self.loop_1x_graphs = {}
         self.loop_2x_graphs = {}
+        self.ram_recurrences = {}
         self.top_block_name = args["benchmark"] if not args["pytorch"] and self.cfg["args"]["arch_opt_pipeline"] != "streamhls" else "forward"
         self.dataflow_blocks = set()
 
@@ -108,6 +109,7 @@ class HardwareModel:
         self.scheduled_dfgs = {}
         self.loop_1x_graphs = {}
         self.loop_2x_graphs = {}
+        self.ram_recurrences = {}
         self.parasitic_graph = nx.DiGraph()
         #self.obj_sub_exprs = {}
         self.execution_time = 0
@@ -165,23 +167,21 @@ class HardwareModel:
         n = len(precomputed["delay"])
         index = max(0, min(index, n - 1))
         logic_fns = set(self.circuit_model.coeffs["gamma"].keys())
-        # self.logic_unit_models = {}
+        self.logic_unit_models = {}
         for fn in logic_fns:
-            rsc_name = f"{fn}_default"
-            lum = lum_module.LogicUnitModel(precomputed, rsc_name, fn)
+            lum = lum_module.LogicUnitModel(precomputed, f"{fn}_default", fn)
             lum.set_design_point(index)
-            self.logic_unit_models[rsc_name] = lum
+            self.logic_unit_models[f"{fn}_default"] = lum
         self.circuit_model.set_logic_unit_models(self.logic_unit_models)
 
     def set_logic_unit_models(self):
         """Create one LogicUnitModel per unique logic FU resource in the netlist."""
         precomputed = lum_module.precompute_pareto_values(self.circuit_model.tech_model)
         logic_fns = set(self.circuit_model.coeffs["gamma"].keys())
-        # self.logic_unit_models = {}
+        self.logic_unit_models = {}
         for node, data in self.netlist.nodes(data=True):
             fn = data.get("function", "N/A")
             rsc = data.get("name", None)
-            logger.info(f"fn: {fn}, rsc: {rsc}")
             if fn in logic_fns and rsc and rsc not in self.logic_unit_models:
                 self.logic_unit_models[rsc] = lum_module.LogicUnitModel(precomputed, rsc, fn)
             #elif fn in
@@ -283,8 +283,7 @@ class HardwareModel:
                 self.obj_sub_exprs[f"fu_{fu_name}_Ppassinv"]= row["P_pass_inv"]
                 self.obj_sub_exprs[f"fu_{fu_name}_area"]      = row["area"]
         else:
-            self.obj_sub_exprs = {}
-            self.obj_sub_plot_names = {}
+            raise ValueError(f"Model type {self.circuit_model.tech_model.model_cfg['model_type']} not supported")
         self.obj_sub_plot_names = {
             "execution_time": "Execution Time over generations (ns)",
             "passive power": "Passive Power over generations (W)",

@@ -73,15 +73,6 @@ class MemoryModel:
         self.memory_info = memory_info
         self.name = name
         self.total_size_bits = memory_info["total_size"]
-        
-        # Default metrics to prevent AttributeErrors if pareto data is missing
-        # Set to small non-zero values to avoid division-by-zero errors in performance models
-        self.cacheArea_mm2 = 1.0
-        self.cacheHitLatency_ns = 1.0
-        self.cacheWriteLatency_ns = 1.0
-        self.cacheHitDynamicEnergy_nJ = 1.0
-        self.cacheWriteDynamicEnergy_nJ = 1.0
-        self.cacheLeakage_mW = 1.0
 
         self.capacity_label = _bits_to_capacity_label(self.total_size_bits)
 

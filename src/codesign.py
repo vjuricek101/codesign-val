@@ -603,7 +603,7 @@ class Codesign:
 
             #self.hw.loop_2x_graphs = {basic_block_name: schedule_parser.basic_blocks[basic_block_name]["G_loop_2x_standard"] for basic_block_name in schedule_parser.basic_blocks if "G_loop_2x" in schedule_parser.basic_blocks[basic_block_name]}
             self.hw.mem_access_db = schedule_parser.mem_access_db.json_obj
-            self.hw.ram_recurrences = {bb: {} for bb in schedule_parser.basic_blocks}
+            self.hw.ram_recurrences = {bb: schedule_parser.basic_blocks[bb].dfg.ram_recurrences for bb in schedule_parser.basic_blocks}
             logger.info("Vitis schedule parsing complete")
             logger.info(f"time to parse vitis schedule: {time.time()-start_time}")
         else:

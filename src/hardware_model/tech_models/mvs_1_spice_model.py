@@ -157,7 +157,6 @@ class MVS1SpiceModel(TechModel):
         self.R_wire = 0
         self.C_load = 0
         self.C_par = 0
-        self.C_diff = 0
         self.R_avg_inv = 0
         self.delta = 0
         self.dVt = 0
@@ -169,73 +168,6 @@ class MVS1SpiceModel(TechModel):
         self.NM_H = 0
         self.NM_L = 0
         self.noise_margin = 0
-        self.base_params.cur_design_point = dict(self.base_params.tech_values)
-
-    @property
-    def pareto_df(self):
-        import pandas as pd
-        row = {
-            "V_dd":         xreplace_safe(self.V_dd, self.base_params.tech_values),
-            "V_th":         xreplace_safe(self.V_th, self.base_params.tech_values),
-            "L":            xreplace_safe(self.L, self.base_params.tech_values),
-            "W":            xreplace_safe(self.W, self.base_params.tech_values),
-            "tox":          xreplace_safe(self.tox, self.base_params.tech_values),
-            "Ieff":         xreplace_safe(self.Ieff, self.base_params.tech_values),
-            "I_sub":        xreplace_safe(self.I_sub, self.base_params.tech_values),
-            "I_off":        xreplace_safe(self.I_off, self.base_params.tech_values),
-            "I_on":         xreplace_safe(self.I_on, self.base_params.tech_values),
-            "A_gate":       xreplace_safe(self.A_gate, self.base_params.tech_values),
-            "C_wire":       xreplace_safe(self.C_wire, self.base_params.tech_values),
-            "R_wire":       xreplace_safe(self.R_wire, self.base_params.tech_values),
-            "C_load":       xreplace_safe(self.C_load, self.base_params.tech_values),
-            "C_par":        xreplace_safe(self.C_par, self.base_params.tech_values),
-            "C_diff":       xreplace_safe(self.C_diff, self.base_params.tech_values),
-            "R_avg_inv":    xreplace_safe(self.R_avg_inv, self.base_params.tech_values),
-            "delta":        xreplace_safe(self.delta, self.base_params.tech_values),
-            "noise_margin": xreplace_safe(self.noise_margin, self.base_params.tech_values),
-            "GEO":          xreplace_safe(self.GEO, self.base_params.tech_values),
-            "MUL":          xreplace_safe(self.MUL, self.base_params.tech_values),
-        }
-        return pd.DataFrame([row])
-
-
-    # @property
-    # def pareto_df(self):
-    #     import pandas as pd
-    #     row = {
-    #         "V_dd":         self.V_dd,
-    #         "V_th":         self.V_th,
-    #         "L":            self.L,
-    #         "W":            self.W,
-    #         "tox":          self.tox,
-    #         "Ieff":         self.Ieff,
-    #         "I_sub":        self.I_sub,
-    #         "I_off":        self.I_off,
-    #         "I_on":         self.I_on,
-    #         "A_gate":       self.A_gate,
-    #         "C_wire":       self.C_wire,
-    #         "R_wire":       self.R_wire,
-    #         "C_load":       self.C_load,
-    #         "C_par":        self.C_par,
-    #         "C_diff":       self.C_diff,
-    #         "R_avg_inv":    self.R_avg_inv,
-    #         "delta":        self.delta,
-    #         "noise_margin": self.noise_margin,
-    #         "GEO":          self.GEO,
-    #         "MUL":          self.MUL,
-    #     }
-    #     return pd.DataFrame([row])
-
-
-    def set_params_from_design_point(self, design_point):
-        logic_params = design_point.get("logic", design_point)
-        str_params = {str(k): v for k, v in logic_params.items()}
-        for param, val in str_params.items():
-            if not hasattr(self.base_params, param):
-                setattr(self.base_params, param, self.base_params.symbol_init(param))
-            self.base_params.set_symbol_value(getattr(self.base_params, param), val)
-            setattr(self, param, getattr(self.base_params, param))
-        self.base_params.cur_design_point = str_params
 
     def init_transistor_equations(self):
         super().init_transistor_equations()
@@ -411,9 +343,6 @@ class MVS1SpiceModel(TechModel):
         self.ring_oscillator_delay = 0
 
         self.delay = (self.R_avg_inv * (self.C_par + self.C_wire/2) + (self.R_avg_inv + self.R_wire) * (self.C_wire/2 + self.C_load)) * 1e9  # ns
-
-        # Expose diffusion capacitance for hardware wire delay models
-        self.C_diff = self.C_par 
 
         self.apply_additional_effects()
 

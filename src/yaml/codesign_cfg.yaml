@@ -31,12 +31,14 @@ default:
     min_dsp: 13
     max_power_density: 100000000 # W/mm^2, not active right now
     max_power: 150 # W
-    solver: basic
+    solver: ipopt
     fixed_area_increase_pattern: False
     historical_trend_pipeline: False
     leakage_restriction: False
     MUL_restriction: False
-    shared_fu_logic: True
+    fu_grouping: by_function
+    mem_grouping: by_capacity
+    sampler: tpe
 
 
 vitis_test_mvs:
