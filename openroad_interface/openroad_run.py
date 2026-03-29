@@ -37,6 +37,75 @@ MAX_TRACTABLE_AREA_DBU = 1e20
 
 TARGET_UTILIZATION = 0.5
 
+# Minimum displacement (μm) for a macro to be considered "actively placed" by CT
+# vs. left at the initial.plc position. Used by _extract_ct_placed_macros.
+CT_MIN_PLACEMENT_DISPLACEMENT = 5.0
+
+
+def _extract_ct_placed_macros(
+    out_plc_path: str,
+    init_plc_path: str,
+    filtered_plc_path: str,
+    min_displacement: float = 5.0
+) -> int:
+    """Compare CT output PLC vs initial PLC; keep only macros that moved.
+
+    Macros CT didn't place remain at their initial.plc positions.  We detect
+    active placement by comparing (x, y) in each file.  Any macro whose center
+    moved by more than `min_displacement` μm is written to `filtered_plc_path`.
+
+    Returns the number of actively-placed macros written.
+    """
+    def _parse_plc(path):
+        positions = {}
+        with open(path, 'r') as f:
+            for line in f:
+                s = line.strip()
+                if s.startswith('#') or not s:
+                    continue
+                parts = s.split()
+                if len(parts) >= 3:
+                    try:
+                        idx = parts[0]
+                        x, y = float(parts[1]), float(parts[2])
+                        positions[idx] = (x, y, line)
+                    except ValueError:
+                        pass
+        return positions
+
+    init_pos = _parse_plc(init_plc_path)
+    out_pos  = _parse_plc(out_plc_path)
+
+    # Copy header lines from output PLC
+    header_lines = []
+    with open(out_plc_path, 'r') as f:
+        for line in f:
+            if line.strip().startswith('#') or not line.strip():
+                header_lines.append(line)
+            else:
+                break  # stop at first data line
+
+    n_placed = 0
+    data_lines = []
+    for idx, (ox, oy, orig_line) in out_pos.items():
+        if idx in init_pos:
+            ix, iy, _ = init_pos[idx]
+            dist = ((ox - ix)**2 + (oy - iy)**2) ** 0.5
+            if dist >= min_displacement:
+                data_lines.append(orig_line)
+                n_placed += 1
+        else:
+            # macro not in initial.plc → always include
+            data_lines.append(orig_line)
+            n_placed += 1
+
+    with open(filtered_plc_path, 'w') as f:
+        f.writelines(header_lines)
+        f.writelines(data_lines)
+
+    return n_placed
+
+
 # When True, monitor the OpenROAD log and terminate immediately on any
 # line containing "ERROR" (case-insensitive). Set to False to disable.
 OPENROAD_ABORT_ON_LOG_ERROR = True
@@ -237,70 +306,187 @@ class OpenRoadRun:
                 design = pb_design(design_name, out_pb_path)
                 design.read_netlist()
                 
-                # Extract core area from def file to properly populate initial.plc metadata
-                core_w, core_h = 1000.0, 1000.0 # defaults if parse fails
+                # ----------------------------------------------------------------
+                # Extract core bounds from DEF: parse ROWS for site-snapped origin
+                # and DIEAREA as a fallback.
+                # ----------------------------------------------------------------
+                core_w, core_h = 1000.0, 1000.0   # fallback defaults
+                core_x1, core_y1 = DIE_CORE_BUFFER_SIZE, DIE_CORE_BUFFER_SIZE
                 try:
                     with open(def_file, 'r') as f:
                         def_content = f.read()
-                    
+
                     units_match = re.search(r'UNITS\s+DISTANCE\s+MICRONS\s+([\d.]+)', def_content)
                     dbu = float(units_match.group(1)) if units_match else 2000.0
-                    
-                    # Extract DIEAREA - handle floats/integers
-                    die_match = re.search(r'DIEAREA\s*\(\s*([\d.]+)\s+([\d.]+)\s*\)\s*\(\s*([\d.]+)\s+([\d.]+)\s*\)', def_content)
-                    if die_match:
-                        x1, y1, x2, y2 = map(float, die_match.groups())
-                        die_w = (x2 - x1) / dbu
-                        die_h = (y2 - y1) / dbu
-                        # Core area is defined by shrinking die by DIE_CORE_BUFFER_SIZE on all 4 sides
-                        core_w = die_w - (2 * DIE_CORE_BUFFER_SIZE)
-                        core_h = die_h - (2 * DIE_CORE_BUFFER_SIZE)
-                        logger.info(f"Parsed DEF DIEAREA: {die_w}x{die_h} -> COREAREA: {core_w}x{core_h}")
-                except Exception as e:
-                    logger.warning(f"Failed to parse DEF for initial.plc area: {e}")
 
-                design.plc_info.columns = 10
-                design.plc_info.rows = 10
-                design.plc_info.width = core_w
-                design.plc_info.height = core_h
-                design.plc_info.area = core_w * core_h
-                design.plc_info.route_hor = 70.33
-                design.plc_info.route_ver = 74.51
-                design.plc_info.sm_factor = 5
+                    # Try to get exact core bounds from ROW statements.
+                    # ROW <name> <site> <origX> <origY> <orient> DO <numX> BY <numY> STEP <stepX> <stepY> ;
+                    row_matches = re.findall(
+                        r'ROW\s+\S+\s+\S+\s+([\d.]+)\s+([\d.]+)\s+\S+\s+DO\s+(\d+)\s+BY\s+(\d+)\s+STEP\s+([\d.]+)\s+([\d.]+)',
+                        def_content
+                    )
+                    if row_matches:
+                        # All rows share the same X origin (site-snapped core LL)
+                        first = row_matches[0]
+                        last  = row_matches[-1]
+                        core_x1_dbu = float(first[0])
+                        core_y1_dbu = float(first[1])
+                        # Core upper bound: last row origin + step_y (one site height)
+                        last_row_y  = float(last[1])
+                        step_y_dbu  = float(last[5])
+                        num_x       = int(first[2])
+                        step_x_dbu  = float(first[4])
+
+                        core_x1 = core_x1_dbu / dbu
+                        core_y1 = core_y1_dbu / dbu
+                        # width from first row: numX sites × step_x
+                        core_w  = (num_x * step_x_dbu) / dbu
+                        # height from first to last row + one site height
+                        core_h  = (last_row_y + step_y_dbu - float(first[1])) / dbu
+                        logger.info(
+                            f"Parsed DEF ROWS: core origin ({core_x1:.4f}, {core_y1:.4f}), "
+                            f"size {core_w:.4f}x{core_h:.4f} μm"
+                        )
+                    else:
+                        # Fallback: DIEAREA minus buffer
+                        die_match = re.search(
+                            r'DIEAREA\s*\(\s*([\d.]+)\s+([\d.]+)\s*\)\s*\(\s*([\d.]+)\s+([\d.]+)\s*\)',
+                            def_content
+                        )
+                        if die_match:
+                            dx1, dy1, dx2, dy2 = map(float, die_match.groups())
+                            die_w = (dx2 - dx1) / dbu
+                            die_h = (dy2 - dy1) / dbu
+                            core_w  = die_w - 2 * DIE_CORE_BUFFER_SIZE
+                            core_h  = die_h - 2 * DIE_CORE_BUFFER_SIZE
+                            core_x1 = DIE_CORE_BUFFER_SIZE
+                            core_y1 = DIE_CORE_BUFFER_SIZE
+                            logger.info(
+                                f"Parsed DEF DIEAREA (fallback): die {die_w:.2f}x{die_h:.2f} → "
+                                f"core {core_w:.2f}x{core_h:.2f} μm"
+                            )
+                except Exception as e:
+                    logger.warning(f"Failed to parse DEF for initial.plc geometry: {e}")
+
+                # ----------------------------------------------------------------
+                # Extract routes per micron from tech LEF (sum over all routing
+                # layers grouped by preferred direction).
+                # ----------------------------------------------------------------
+                route_hor, route_ver = 0.0, 0.0
+                tech_lef = lef_files[0]   # first LEF is always the tech LEF
+                try:
+                    with open(tech_lef, 'r') as f:
+                        lef_content = f.read()
+
+                    for layer_block in re.finditer(
+                        r'LAYER\s+\w+\s+(.*?)END\s+\w+', lef_content, re.DOTALL
+                    ):
+                        blk = layer_block.group(1)
+                        if 'TYPE ROUTING' not in blk:
+                            continue
+                        dir_m   = re.search(r'DIRECTION\s+(HORIZONTAL|VERTICAL)', blk)
+                        pitch_m = re.search(r'PITCH\s+([\d.]+)', blk)
+                        if dir_m and pitch_m:
+                            pitch = float(pitch_m.group(1))
+                            if pitch > 0:
+                                if dir_m.group(1) == 'HORIZONTAL':
+                                    route_hor += 1.0 / pitch
+                                else:
+                                    route_ver += 1.0 / pitch
+
+                    logger.info(
+                        f"Parsed tech LEF routes per μm: hor={route_hor:.4f}, ver={route_ver:.4f}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to parse tech LEF for routing capacity: {e}. "
+                                   f"Using Nangate45 defaults (19.73 / 14.28).")
+                    route_hor = 19.73
+                    route_ver = 14.28
+
+                design.plc_info.columns = 128
+                design.plc_info.rows    = 128
+                design.plc_info.width   = core_w
+                design.plc_info.height  = core_h
+                design.plc_info.area    = core_w * core_h
+                design.plc_info.route_hor     = route_hor
+                design.plc_info.route_ver     = route_ver
+                design.plc_info.sm_factor     = 5
                 design.plc_info.ovrlp_thrshld = 0.004
-                
+
                 design.write_plc(init_plc_path)
+                logger.info(f"initial.plc: canvas {core_w:.1f}×{core_h:.1f} μm, "
+                            f"grid 128×128, route_hor={route_hor:.2f}, route_ver={route_ver:.2f}")
+
+                # Store the exact core origin so TCL conversion uses it correctly
+                ct_core_origin = (core_x1, core_y1)
                 
-                ct_bridge.run_circuit_training_inference(out_pb_path, init_plc_path, out_plc_path, run_dir, ckpt_id)
+                ct_fully_placed = ct_bridge.run_circuit_training_inference(out_pb_path, init_plc_path, out_plc_path, run_dir, ckpt_id)
                 
-                # Convert PB placement to OpenROAD TCL
-                out_tcl_file = os.path.join(self.directory, "tcl", "circuit_training_macro_place.tcl")
-                logger.info(f"Converting PLC back into OpenROAD TCL placement at {out_tcl_file}")
-                # We need the origin to be the core area origin, which is DIE_CORE_BUFFER_SIZE
-                ct_bridge.convert_pb_placement_to_tcl(out_plc_path, out_pb_path, out_tcl_file, origin_x=DIE_CORE_BUFFER_SIZE, origin_y=DIE_CORE_BUFFER_SIZE)
-                
-                # Edit codesign_flow.tcl to source our placement rather than OpenROAD's default analytical placer
-                with open(os.path.join(self.directory, "tcl", "codesign_flow.tcl"), "r") as f:
-                    flow_tcl = f.read()
-                
-                # Comment out any rtl_macro_placer call entirely
-                flow_tcl = re.sub(r'(\n\s*rtl_macro_placer\b.*?)(?=\n\n|\n\s*[a-z_]|$)', 
-                                  lambda m: m.group(1).replace('\n', '\n# '), 
-                                  flow_tcl, flags=re.DOTALL)
-                
-                # Define helper proc for the generated placement if not already present
-                if "proc placeInstance" not in flow_tcl:
-                    place_inst_helper = "\nproc placeInstance {inst x y orient status} {\n" \
-                                       "    # Use place_macro for this version of OpenROAD\n" \
-                                       "    place_macro -macro_name $inst -location [list $x $y] -orientation $orient\n" \
-                                       "}\n\n"
-                    flow_tcl = place_inst_helper + flow_tcl
-                
-                # Source our generated macro placement instead
-                flow_tcl = flow_tcl.replace("#source macro_place.tcl", "source circuit_training_macro_place.tcl")
-                
-                with open(os.path.join(self.directory, "tcl", "codesign_flow.tcl"), "w") as f:
-                    f.write(flow_tcl)
+                if not os.path.exists(out_plc_path):
+                    logger.warning("Circuit Training did not produce a .plc file. "
+                                   "Skipping macro pre-placement — OpenROAD will use its default analytical placer.")
+                elif not ct_fully_placed:
+                    logger.warning(
+                        f"Circuit Training placed only a partial set of macros (episode return < 0, "
+                        f"wirelength metric = -1). Skipping CT TCL injection — OpenROAD will use "
+                        f"its default rtl_macro_placer for all macros."
+                    )
+                else:
+                    # CT placed ALL macros → inject placement constraints
+                    partial_plc_path = out_plc_path + ".ct_placed_only.plc"
+                    n_placed = _extract_ct_placed_macros(
+                        out_plc_path, init_plc_path, partial_plc_path,
+                        CT_MIN_PLACEMENT_DISPLACEMENT
+                    )
+                    if n_placed == 0:
+                        logger.warning("CT produced no useful macro placements. Skipping TCL injection.")
+                    else:
+                        logger.info(f"CT placed {n_placed} macro(s). Generating placement TCL.")
+                        out_tcl_file = os.path.join(self.directory, "tcl", "circuit_training_macro_place.tcl")
+                        ct_bridge.convert_pb_placement_to_tcl(
+                            partial_plc_path, out_pb_path, out_tcl_file,
+                            origin_x=ct_core_origin[0], origin_y=ct_core_origin[1]
+                        )
+
+                        with open(os.path.join(self.directory, "tcl", "codesign_flow.tcl"), "r") as f:
+                            flow_tcl = f.read()
+
+                        # Suppress rtl_macro_placer (CT placed all 148 macros)
+                        flow_tcl = re.sub(
+                            r'(\n\s*rtl_macro_placer\b.*?)(?=\n\n|\n\s*[a-z_]|$)',
+                            lambda m: m.group(1).replace('\n', '\n# '),
+                            flow_tcl, flags=re.DOTALL
+                        )
+                        logger.info("Suppressed rtl_macro_placer (CT placed all macros).")
+
+                        # Always write the latest placeInstance proc with error handling
+                        new_place_proc = (
+                            "\nproc placeInstance {inst x y orient status} {\n"
+                            "    catch {\n"
+                            "        set block [[[ord::get_db] getChip] getBlock]\n"
+                            "        set iobj [$block findInst $inst]\n"
+                            "        if {$iobj ne \"NULL\"} { $iobj setPlacementStatus PLACED }\n"
+                            "    }\n"
+                            "    if {[catch {place_macro -macro_name $inst"
+                            " -location [list $x $y] -orientation $orient} err]} {\n"
+                            "        puts \"WARNING: CT could not place $inst: $err\"\n"
+                            "    }\n"
+                            "}\n"
+                        )
+                        if "proc placeInstance" in flow_tcl:
+                            import re as _re2
+                            flow_tcl = _re2.sub(
+                                r'proc placeInstance \{[^}]+\}\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}',
+                                new_place_proc.strip(), flow_tcl, flags=_re2.DOTALL
+                            )
+                        else:
+                            flow_tcl = new_place_proc + flow_tcl
+
+                        flow_tcl = flow_tcl.replace("#source macro_place.tcl",
+                                                    "source circuit_training_macro_place.tcl")
+
+                        with open(os.path.join(self.directory, "tcl", "codesign_flow.tcl"), "w") as f:
+                            f.write(flow_tcl)
                     
             except Exception as e:
                 logger.error(f"Circuit training macro placement failed: {e}. Falling back to standard OpenROAD analytical placer.")
@@ -586,6 +772,7 @@ class OpenRoadRun:
                 shell=True,
                 env=env,
                 cwd=os.getcwd(),
+                stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT
             )

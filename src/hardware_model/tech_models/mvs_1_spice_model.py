@@ -157,6 +157,7 @@ class MVS1SpiceModel(TechModel):
         self.R_wire = 0
         self.C_load = 0
         self.C_par = 0
+        self.C_diff = 0
         self.R_avg_inv = 0
         self.delta = 0
         self.dVt = 0
@@ -334,6 +335,7 @@ class MVS1SpiceModel(TechModel):
         self.I_off = (self.I_sub + self.I_tunnel)/2
 
         self.C_load, self.C_par = self.calculate_C(self.L, self.W, self.Lext, self.eps_cap, self.k_gate, self.tox, self.beta_p_n, self.FO, self.M, self.GEO, self.MUL)
+        self.C_diff = self.C_par
 
         self.E_act_inv = (0.5*(self.C_load + self.C_par + self.C_wire)*self.V_dd*2) * 1e9  # nJ
         self.P_pass_inv = self.I_off * self.V_dd

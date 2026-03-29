@@ -54,10 +54,12 @@ def run_circuit_training_inference(netlist_pb_path: str, init_plc_path: str, out
         "eval_ct.py"
     )
     
-    MINICONDA_PYTHON = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "miniconda3", "bin", "python3.13")
+    # Use the current python executable (the one from your activated conda env)
+    # instead of a hardcoded path to the base environment.
+    PYTHON_EXE = sys.executable
 
     cmd = [
-        MINICONDA_PYTHON, "-m", "eval_ct",
+        PYTHON_EXE, "-m", "eval_ct",
         "--netlist", netlist_pb_path,
         "--plc", init_plc_path,
         "--rundir", run_dir,
@@ -75,22 +77,68 @@ def run_circuit_training_inference(netlist_pb_path: str, init_plc_path: str, out
     env["PYTHONPATH"] = ct_root_dir
     result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env)
 
+    if result.stdout:
+        print(f"Inference Output:\n{result.stdout}")
+    if result.stderr:
+        print(f"Inference Errors:\n{result.stderr}")
+
     if result.returncode != 0:
-        print(f"Error running Circuit Training:\n{result.stderr}")
         raise RuntimeError("Circuit Training inference failed.")
         
     print("Circuit Training inference completed.")
     
-    # search for the expected file or copy the newest .plc file matching pattern
-    import glob
-    # In eval_ct.py, EVAL_TESTCASE might be the dir name (e.g. "pd")
-    plc_files = glob.glob(os.path.join(cwd, "eval_*.plc"))
-    if plc_files:
-        latest_plc = max(plc_files, key=os.path.getctime)
-        os.rename(latest_plc, out_plc_path)
-        print(f"Moved output PLC to {out_plc_path}")
+    # Detect whether CT placed all macros successfully.
+    # successful placements have wirelength >= 0 (real placement cost).
+    # TF/absl logging goes to stderr, so search both streams.
+    ct_fully_placed = False
+    combined_output = (result.stdout or "") + (result.stderr or "")
+    if combined_output:
+        import re as _re
+        # Primary check: wirelength metric >= 0 means real placement (feasible)
+        m_wl = _re.search(r'InfoMetric_wirelength\s*=\s*([\-\d.eE+]+)', combined_output)
+        if m_wl:
+            wl_metric = float(m_wl.group(1))
+            ct_fully_placed = wl_metric >= 0.0
+            m_ep = _re.search(r'eval_episode_return\s*=\s*([\-\d.eE+]+)', combined_output)
+            ep_return = float(m_ep.group(1)) if m_ep else float('nan')
+            m_steps = _re.search(r'EnvironmentSteps\s*=\s*(\d+)', combined_output)
+            steps = int(m_steps.group(1)) if m_steps else -1
+            status = 'FEASIBLE (all macros placed)' if ct_fully_placed else 'INFEASIBLE (partial placement)'
+            print(f"CT result: {status} | steps={steps} | wirelength={wl_metric:.4f} | return={ep_return:.4f}")
+    
+    import glob, shutil
+    # eval_ct.py writes the output as: ./eval_<rundir>_to_<EVAL_TESTCASE>.plc
+    # EVAL_TESTCASE is derived from the netlist path: the directory two levels above results/
+    # e.g. .../tmp_gemm_edp_1/pd/results/codesign.pb.txt  ->  tmp_gemm_edp_1
+    parts = netlist_pb_path.replace("\\", "/").split("/")
+    eval_testcase = "codesign_eval"
+    if "results" in parts:
+        idx = parts.index("results")
+        if idx > 0:
+            eval_testcase = parts[idx - 1]
+            if eval_testcase == "pd" and idx > 1:
+                eval_testcase = parts[idx - 2]
+
+    expected_plc_name = f"eval_{run_dir}_to_{eval_testcase}.plc"
+    expected_plc_path = os.path.join(cwd, expected_plc_name)
+    print(f"Looking for output PLC at: {expected_plc_path}")
+
+    if os.path.exists(expected_plc_path):
+        shutil.copy2(expected_plc_path, out_plc_path)
+        print(f"Copied output PLC to {out_plc_path}")
     else:
-        print(f"Warning: Could not find generated .plc file in {cwd}")
+        # Fallback: find the most recently created eval_*.plc in the EvalCT dir
+        plc_files = glob.glob(os.path.join(cwd, "eval_*.plc"))
+        if plc_files:
+            latest_plc = max(plc_files, key=os.path.getctime)
+            shutil.copy2(latest_plc, out_plc_path)
+            print(f"Copied output PLC (fallback) to {out_plc_path}")
+        else:
+            msg = f"Could not find generated .plc file in {cwd}. Expected: {expected_plc_name}"
+            print(f"Warning: {msg}")
+            raise RuntimeError(msg)
+    
+    return ct_fully_placed
 
 def convert_pb_placement_to_tcl(plc_file: str, pb_file: str, out_tcl_file: str, origin_x: float = 0.0, origin_y: float = 0.0):
     """
